@@ -34,13 +34,13 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	content := `{"redis_address": "10.0.0.1:6379", "redis_password": "test-password", "http_port": 9000}`
 	if _, err := tmpFile.Write([]byte(content)); err != nil {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
-	tmpFile.Close()
+	defer func() { _ = tmpFile.Close() }()
 
 	cfg, err := loadConfig(tmpFile.Name())
 	if err != nil {
@@ -121,10 +121,10 @@ func TestHealthCheckHandlerWithMockServer(t *testing.T) {
 		{
 			name: "Successful Master Validation",
 			redisResponses: []string{
-				"+OK\r\n",               // AUTH response
-				"+PONG\r\n",             // PING response
+				"+OK\r\n",                // AUTH response
+				"+PONG\r\n",              // PING response
 				"$11\r\nrole:master\r\n", // INFO replication response
-				"+OK\r\n",               // QUIT response
+				"+OK\r\n",                // QUIT response
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -153,7 +153,7 @@ func TestHealthCheckHandlerWithMockServer(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to start fake redis listener: %v", err)
 			}
-			defer listener.Close()
+			defer func() { _ = listener.Close() }()
 
 			// Wire up the mock server behavior asynchronously
 			ctx, cancel := context.WithCancel(context.Background())
@@ -163,7 +163,7 @@ func TestHealthCheckHandlerWithMockServer(t *testing.T) {
 				if err != nil {
 					return
 				}
-				defer conn.Close()
+				defer func() { _ = conn.Close() }()
 
 				reader := bufio.NewReader(conn)
 				for _, mockResp := range tt.redisResponses {

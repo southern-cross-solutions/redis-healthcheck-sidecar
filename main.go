@@ -46,13 +46,17 @@ func loadConfig(path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	defer file.Close()
+
+	defer func() {
+		if err := file.Close(); err != nil {
+			slog.Default().Warn("Failed to close file", slog.Any("error", err))
+		}
+	}()
 
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&cfg)
 	return cfg, err
 }
-
 
 // Helper function to send commands to and read responses from Redis
 func sendCommand(rw *bufio.ReadWriter, command string, logger *slog.Logger) (string, error) {
@@ -104,7 +108,11 @@ func masterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Redis Down", http.StatusServiceUnavailable)
 		return
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			slog.Default().Warn("Failed to close connection", slog.Any("error", err))
+		}
+	}()
 
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
@@ -145,7 +153,7 @@ func masterHandler(w http.ResponseWriter, r *http.Request) {
 
 	reqLogger.Info("Master-check completed: Node is healthy and MASTER", "duration_ms", time.Since(start).Milliseconds())
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK - Node is Master"))
+	_, _ = w.Write([]byte("OK - Node is Master"))
 }
 
 func main() {
@@ -169,10 +177,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("Starting SCS Redis Health Check Sidecar service", 
+	slog.Info("Starting SCS Redis Health Check Sidecar service",
 		"config_path", *configPath,
 		"redis_target", globalConfig.RedisAddress,
-		"http_port", globalConfig.HTTPPort, 
+		"http_port", globalConfig.HTTPPort,
 		"log_level", logLevel.String(),
 	)
 
