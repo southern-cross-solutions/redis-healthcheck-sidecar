@@ -28,6 +28,17 @@ import (
 	"testing"
 )
 
+// TestWriter captures bytes and sends them to t.Log
+type TestWriter struct {
+	t *testing.T
+}
+
+func (tw TestWriter) Write(p []byte) (n int, err error) {
+	// Strip trailing newline if you don't want empty lines in your test output
+	tw.t.Log(string(p))
+	return len(p), nil
+}
+
 // TestLoadConfig verifies JSON parsing behavior
 func TestLoadConfig(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "config-*.json")
@@ -78,12 +89,25 @@ func TestSendCommand(t *testing.T) {
 			expectErr:    false,
 		},
 		{
-			name:         "Bulk String Info Replication",
+			name:         "Bulk String Info Replication - Single line",
 			redisInput:   "$11\r\nrole:master\r\n",
 			command:      "INFO replication",
 			expectedResp: "role:master",
 			expectErr:    false,
 		},
+		// {
+		// 	name: "Bulk String Info Replication - Multi line with comment",
+		// 	redisInput: "$349\r\n# Replication\r\nrole:master\r\nconnected_slaves:0\r\n" +
+		// 		"master_failover_state:no-failover\r\n" +
+		// 		"master_replid:628aa9e80558abae3e2f2d88f989763eb8774941\r\n" +
+		// 		"master_replid2:0000000000000000000000000000000000000000\r\n" +
+		// 		"master_repl_offset:0\r\nsecond_repl_offset:-1\r\n" +
+		// 		"repl_backlog_active:0\r\nrepl_backlog_size:1048576" +
+		// 		"repl_backlog_first_byte_offset:0\r\nrepl_backlog_histlen:0\r\n",
+		// 	command:      "INFO replication",
+		// 	expectedResp: "role:master",
+		// 	expectErr:    false,
+		// },
 	}
 
 	for _, tt := range tests {
@@ -112,6 +136,9 @@ func TestSendCommand(t *testing.T) {
 func TestHealthCheckHandlerWithMockServer(t *testing.T) {
 	// Initialize default logger to silence outputs during testing
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})))
+	// UNcomment below to enable actual logging
+	// logger := slog.New(slog.NewTextHandler(TestWriter{t: t}, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	// slog.SetDefault(logger)
 
 	tests := []struct {
 		name           string
@@ -119,7 +146,7 @@ func TestHealthCheckHandlerWithMockServer(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name: "Successful Master Validation",
+			name: "Successful Master Validation - Single line",
 			redisResponses: []string{
 				"+OK\r\n",                // AUTH response
 				"+PONG\r\n",              // PING response
@@ -129,11 +156,29 @@ func TestHealthCheckHandlerWithMockServer(t *testing.T) {
 			expectedStatus: http.StatusOK,
 		},
 		{
+			name: "Successful Master Validation - Multi line",
+			redisResponses: []string{
+				"+OK\r\n",   // AUTH response
+				"+PONG\r\n", // PING response
+				"$349\r\n# Replication\r\nrole:master\r\nconnected_slaves:0\r\n" +
+					"master_failover_state:no-failover\r\n" +
+					"master_replid:628aa9e80558abae3e2f2d88f989763eb8774941\r\n" +
+					"master_replid2:0000000000000000000000000000000000000000\r\n" +
+					"master_repl_offset:0\r\nsecond_repl_offset:-1\r\n" +
+					"repl_backlog_active:0\r\nrepl_backlog_size:1048576\r\n" +
+					"repl_backlog_first_byte_offset:0\r\nrepl_backlog_histlen:0\r\n" +
+					"\r\n",
+				// INFO replication response
+				"+OK\r\n", // QUIT response
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
 			name: "Failed Master Validation because node is a Replica",
 			redisResponses: []string{
 				"+OK\r\n",
 				"+PONG\r\n",
-				"$12\r\nrole:slave\r\n", // Node indicates it's a replica/slave
+				"$12\r\nrole:slave\r\n\r\n", // Node indicates it's a replica/slave
 			},
 			expectedStatus: http.StatusServiceUnavailable,
 		},

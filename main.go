@@ -21,10 +21,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -83,13 +85,34 @@ func sendCommand(rw *bufio.ReadWriter, command string, logger *slog.Logger) (str
 
 	if strings.HasPrefix(line, "$") {
 		logger.Debug("Redis returned bulk string length indicator", "line", line)
-		payload, err := rw.ReadString('\n')
+		lengthStr := strings.TrimSpace(line)[1:]
+		logger.Debug("Redis returned bulk string length indicator", "lengthStr", lengthStr)
+		length, err := strconv.Atoi(lengthStr)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("Failed to parse bulk string length: %w", err)
 		}
-		trimmedPayload := strings.TrimSpace(payload)
-		logger.Debug("Redis bulk string payload received", "bytes", len(trimmedPayload))
-		return trimmedPayload, nil
+
+		if length == -1 {
+			return "", nil // In Go, nil or empty string denotes the null/empty condition
+		}
+		if length < 0 {
+			return "", fmt.Errorf("Invalid negative bulk string length: %d", length)
+		}
+
+		payloadBuffer := make([]byte, length)
+		_, err = io.ReadFull(rw, payloadBuffer)
+		if err != nil {
+			return "", fmt.Errorf("Failed to read bulk string payload: %w", err)
+		}
+
+		// Consume the trailing \r\n from the reader
+		if _, err := rw.Discard(2); err != nil {
+			return "", fmt.Errorf("Failed to discard trailing CRLF: %w", err)
+		}
+
+		payload := string(payloadBuffer)
+		logger.Debug("Redis bulk string payload received", "bytes", len(payload))
+		return payload, nil
 	}
 
 	logger.Debug("Redis inline response received", "response", line)

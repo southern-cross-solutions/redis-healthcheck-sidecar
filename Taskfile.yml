@@ -1,3 +1,4 @@
+---
 # Copyright 2026 Southern Cross Solutions (Pty) Ltd
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -5,7 +6,7 @@
 # You may obtain a copy of the License at
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,8 +22,10 @@ vars:
   BUILD_DIR: bin
   DOCKER_REGISTRY: repo.ops.sc-solutions.co.za/sandbox-oci
   DOCKER_IMAGE: "{{.DOCKER_REGISTRY}}/{{.BINARY_NAME}}"
-  VERSION: 
+  VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0"
+  TEST_BIN: ./test-redis-healthcheck-sidecar
+  TEST_CONFIG_FILE: ./etc/test-config.json
 
 # Environmental variables loaded for tasks
 env:
@@ -54,11 +57,98 @@ tasks:
       - golangci-lint run ./...
 
   test:
+    desc: Run Unit and Acceptance tests
+    deps:
+      - task: test:unit
+      - task: test:acceptance
+    cmds:
+      - echo "======================================================="
+      - echo " Running Unit and Acceptance Tests                     "
+      - echo "======================================================="
+
+  test:unit:
     desc: Run unit tests with race detection and coverage mapping
     env:
-      CGO_ENABLED: "1" # Required for race detector
+      CGO_ENABLED: "1"  # Required for race detector
+
     cmds:
       - go test -v -race -coverprofile=coverage.out ./...
+
+  test:acceptance:
+    desc: Run full end-to-end acceptance suite with dynamic lifecycle cleanup
+    deps:
+      - task: test:acceptance:infra-up
+      - task: test:acceptance:build
+    # Clean up everything at the very end, even if assertion steps fail midway
+    defer:
+      task: test:acceptance:cleanup
+    cmds:
+      - echo "======================================================="
+      - echo " Starting Redis HealthCheck Sidecar Acceptance Testing "
+      - echo "======================================================="
+      - task: test:acceptance:scenario-master
+      - task: test:acceptance:scenario-replica
+      - echo "===================================================="
+      - echo " ALL ACCEPTANCE TESTS PASSED SUCCESSFULLY!          "
+      - echo "===================================================="
+
+  test:acceptance:build:
+    internal: true
+    cmds:
+      - echo "Compiling sidecar app binary..."
+      - go build -o {{.TEST_BIN}} main.go
+
+  test:acceptance:infra-up:
+    internal: true
+    desc: Provisions isolated test Redis topology
+    status:
+      - docker ps -f name=test-redis-master -f name=test-redis-replica | grep -q "test-redis"
+    cmds:
+      - echo "Launching local Test Redis Architecture..."
+      - docker run -d --name test-redis-master -p 63791:6379 redis:7-alpine redis-server --requirepass 123456
+      - docker run -d --name test-redis-replica -p 63792:6379 redis:7-alpine redis-server --requirepass 123456 --replicaof 172.17.0.1 63791
+      - sleep 3
+
+  test:acceptance:scenario-master:
+    internal: true
+    cmds:
+      - echo '{"redis_address":"127.0.0.1:63791","redis_password":"123456","http_port":8081}' > {{.TEST_CONFIG_FILE}}
+      # Run in background via Taskfile native & tracking
+      - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
+      - sleep 1
+      - echo "Verifying Master status (Expecting 200 OK)..."
+      # Perform HTTP evaluation and assertion
+      - |
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/master || echo "Failed")
+        if [ "$STATUS" != "200" ]; then
+          echo "❌ Failed: Master returned status $STATUS" && exit 1
+        fi
+        echo "✔ Success: Master healthcheck returned 200 OK!"
+    defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
+
+  test:acceptance:scenario-replica:
+    internal: true
+    cmds:
+      - echo '{"redis_address":"127.0.0.1:63792","redis_password":"123456","http_port":8082}' > {{.TEST_CONFIG_FILE}}
+      - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
+      - sleep 1
+      - echo "Verifying Replica status (Expecting 503 Service Unavailable)..."
+      - |
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8082/master || echo "Failed")
+        if [ "$STATUS" != "503" ]; then
+          echo "❌ Failed: Replica returned status $STATUS instead of 503" && exit 1
+        fi
+        echo "✔ Success: Replica sidecar healthcheck appropriately rejected via 503!"
+    defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
+
+  test:acceptance:cleanup:
+    desc: Teardown test configuration files and running container infrastructure
+    always: true
+    cmds:
+      - echo "Cleaning up environments..."
+      - docker stop test-redis-master test-redis-replica 2>/dev/null || true
+      - docker rm test-redis-master test-redis-replica 2>/dev/null || true
+      - rm -f {{.TEST_BIN}} {{.CONFIG_FILE}}
 
   clean:
     desc: Clean up build artifacts and caches
@@ -107,5 +197,4 @@ tasks:
   dev:
     desc: Run the app locally
     cmds:
-      - ./redis-healthcheck-sidecar
-
+      - ./bin/redis-healthcheck-sidecar
