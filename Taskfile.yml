@@ -199,21 +199,12 @@ tasks:
         go build -ldflags="-w -s -X main.Version={{.VERSION}}" \
         -o {{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-amd64 ./main.go
 
-  docker:build:
-    desc: Build production-ready Docker image
-    deps: [compile-linux]
-    cmds:
-      - docker build --build-arg BINARY_PATH={{.BUILD_DIR}}/{{.BINARY_NAME}}-linux-amd64 -t {{.DOCKER_IMAGE}}:{{.VERSION}} .
-      - docker tag {{.DOCKER_IMAGE}}:{{.VERSION}} {{.DOCKER_IMAGE}}:latest
-
-  docker:push:
-    desc: Push tagged images to remote container registry
-    deps: [docker:build]
-    cmds:
-      - docker push {{.DOCKER_IMAGE}}:{{.VERSION}}
-      - docker push {{.DOCKER_IMAGE}}:latest
-
   dev:
     desc: Run the app locally
     cmds:
       - ./bin/redis-healthcheck-sidecar
+
+  package:debian:
+    desc: Build a Ubuntu DEB package
+    cmds:
+      - dpkg-buildpackage -us -uc -b
