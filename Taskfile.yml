@@ -78,8 +78,9 @@ tasks:
   test:acceptance:
     desc: Run full end-to-end acceptance suite with dynamic lifecycle cleanup
     deps:
-      - task: test:acceptance:infra-up
       - task: test:acceptance:build
+      - task: test:acceptance:prepare-test-dir
+      - task: test:acceptance:infra-up
     silent: true
     # Clean up everything at the very end, even if assertion steps fail midway
     cmds:
@@ -101,6 +102,12 @@ tasks:
       - echo "Building before running Acceptance tests..."
     silent: true
 
+  test:acceptance:prepare-test-dir:
+    cmds:
+      - mkdir ./bin/test
+    status:
+      - test -d ./bin/test
+
   test:acceptance:infra-up:
     internal: true
     desc: Provisions isolated test Redis topology
@@ -115,11 +122,11 @@ tasks:
 
   test:acceptance:scenario-master:
     internal: true
+    deps:
+      - task: test:acceptance:prepare-test-dir
     silent: true
     cmds:
       - defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
-      - cmd: mkdir ./bin/test
-        ignore_error: true
       - echo '{"redis_address":"127.0.0.1:63791","redis_password":"123456","http_port":8081}' > {{.TEST_CONFIG_FILE}}
       # Run in background via Taskfile native & tracking
       - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
@@ -135,11 +142,11 @@ tasks:
 
   test:acceptance:scenario-replica:
     internal: true
+    deps:
+      - task: test:acceptance:prepare-test-dir
     silent: true
     cmds:
       - defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
-      - cmd: mkdir ./bin/test
-        ignore_error: true
       - echo '{"redis_address":"127.0.0.1:63792","redis_password":"123456","http_port":8082}' > {{.TEST_CONFIG_FILE}}
       - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
       - sleep 1
