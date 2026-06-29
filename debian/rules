@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+
+# Detect if we are on a Debian/Ubuntu-based system
+IS_DEBIAN := $(shell test -f /etc/debian_version && echo yes || echo no)
+
+%:
+	dh $@ --without=autoreconf
+
+override_dh_auto_clean:
+	#go clean -i -r -cache
+	task clean
+
+override_dh_auto_build:
+	#go build -v -o redis-healthcheck-sidecar
+	task build
+
+# Tell debhelper to automatically install our config and systemd service file
+override_dh_install:
+	dh_install
+
+	cp etc/systemd_redis-healthcheck-sidecar.service debian/redis-healthcheck-sidecar.service
+
+	mkdir -p debian/redis-healthcheck-sidecar/etc
+	mkdir -p debian/redis-healthcheck-sidecar/usr/bin
+	
+	cp etc/redis-hc-sidecar.json.example debian/redis-healthcheck-sidecar/etc/redis-hc-sidecar.json
+	cp bin/redis-healthcheck-sidecar debian/redis-healthcheck-sidecar/usr/bin/redis-healthcheck-sidecar
+
+override_dh_strip_nondeterminism:
+	# Skipping dh_strip_nondeterminism
+
+override_dh_dwz:
+	# Skipping dwz compression (incompatible with cgo-built shared libraries)
+
+ifeq ($(IS_DEBIAN),no)
+override_dh_shlibdeps:
+	@echo "Detected non Debian host: skipping dh_shlibdeps"
+endif

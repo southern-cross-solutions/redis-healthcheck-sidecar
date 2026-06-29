@@ -34,4 +34,17 @@ go.work.sum
 # Task
 .task
 
+# Build output
 bin/
+
+# Debian
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/redis-healthcheck-sidecar.postrm.debhelper
+debian/redis-healthcheck-sidecar.service
+debian/redis-healthcheck-sidecar.substvars
+debian/redis-healthcheck-sidecar/
+
+# Other
+local-test/

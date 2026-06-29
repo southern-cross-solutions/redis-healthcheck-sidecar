@@ -1,0 +1,13 @@
+Source: redis-healthcheck-sidecar
+Section: utils
+Priority: optional
+Maintainer: Southern Cross Solutions <info@southerncross.solutions>
+Build-Depends: debhelper-compat (= 13), golang-any
+Standards-Version: 4.6.0
+
+Package: redis-healthcheck-sidecar
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, redis-server
+Description: SCS Redis Health Check Sidecar
+ Provides a lightweight structured HTTP endpoint on port 8000 to validate 
+ local Redis master/replica roles for upstream load balancers.

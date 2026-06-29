@@ -1,0 +1,5 @@
+redis-healthcheck-sidecar (1.0.0-1) stable; urgency=low
+
+  * Initial production packaging release using debhelper.
+
+ -- Southern Cross Solutions <info@southerncross.solutions>  Tue, 16 Jun 2026 17:15:00 +0200

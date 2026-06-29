@@ -1,0 +1,14 @@
+[Unit]
+Description=SCS Redis Healthcheck Sidecar
+After=network.target redis-server.service
+
+[Service]
+Type=simple
+User=nobody
+Environment="LOG_LEVEL=info"
+ExecStart=/usr/bin/redis-healthcheck-sidecar -config /etc/redis-hc-sidecar.json
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
