@@ -1,0 +1,7 @@
+
+{
+    "redis_address": "127.0.0.0:6379",
+    "redis_password": "my-secret-password-for-redis",
+    "http_port": 8000
+}
+

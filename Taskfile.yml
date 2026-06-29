@@ -24,8 +24,8 @@ vars:
   DOCKER_IMAGE: "{{.DOCKER_REGISTRY}}/{{.BINARY_NAME}}"
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0"
-  TEST_BIN: ./test-redis-healthcheck-sidecar
-  TEST_CONFIG_FILE: ./etc/test-config.json
+  TEST_BIN: ./bin/redis-healthcheck-sidecar
+  TEST_CONFIG_FILE: ./bin/test/test-config.json
 
 # Environmental variables loaded for tasks
 env:
@@ -61,6 +61,7 @@ tasks:
     deps:
       - task: test:unit
       - task: test:acceptance
+    silent: true
     cmds:
       - echo "======================================================="
       - echo " Running Unit and Acceptance Tests                     "
@@ -79,10 +80,10 @@ tasks:
     deps:
       - task: test:acceptance:infra-up
       - task: test:acceptance:build
+    silent: true
     # Clean up everything at the very end, even if assertion steps fail midway
-    defer:
-      task: test:acceptance:cleanup
     cmds:
+      - defer: { task: test:acceptance:cleanup }
       - echo "======================================================="
       - echo " Starting Redis HealthCheck Sidecar Acceptance Testing "
       - echo "======================================================="
@@ -94,9 +95,11 @@ tasks:
 
   test:acceptance:build:
     internal: true
+    deps:
+      - task: build
     cmds:
-      - echo "Compiling sidecar app binary..."
-      - go build -o {{.TEST_BIN}} main.go
+      - echo "Building before running Acceptance tests..."
+    silent: true
 
   test:acceptance:infra-up:
     internal: true
@@ -104,14 +107,19 @@ tasks:
     status:
       - docker ps -f name=test-redis-master -f name=test-redis-replica | grep -q "test-redis"
     cmds:
-      - echo "Launching local Test Redis Architecture..."
+      - cmd: echo "Launching local Test Redis Architecture..."
+        silent: true
       - docker run -d --name test-redis-master -p 63791:6379 redis:7-alpine redis-server --requirepass 123456
       - docker run -d --name test-redis-replica -p 63792:6379 redis:7-alpine redis-server --requirepass 123456 --replicaof 172.17.0.1 63791
       - sleep 3
 
   test:acceptance:scenario-master:
     internal: true
+    silent: true
     cmds:
+      - defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
+      - cmd: mkdir ./bin/test
+        ignore_error: true
       - echo '{"redis_address":"127.0.0.1:63791","redis_password":"123456","http_port":8081}' > {{.TEST_CONFIG_FILE}}
       # Run in background via Taskfile native & tracking
       - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
@@ -124,11 +132,14 @@ tasks:
           echo "❌ Failed: Master returned status $STATUS" && exit 1
         fi
         echo "✔ Success: Master healthcheck returned 200 OK!"
-    defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
 
   test:acceptance:scenario-replica:
     internal: true
+    silent: true
     cmds:
+      - defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
+      - cmd: mkdir ./bin/test
+        ignore_error: true
       - echo '{"redis_address":"127.0.0.1:63792","redis_password":"123456","http_port":8082}' > {{.TEST_CONFIG_FILE}}
       - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
       - sleep 1
@@ -139,16 +150,17 @@ tasks:
           echo "❌ Failed: Replica returned status $STATUS instead of 503" && exit 1
         fi
         echo "✔ Success: Replica sidecar healthcheck appropriately rejected via 503!"
-    defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
+    
 
   test:acceptance:cleanup:
     desc: Teardown test configuration files and running container infrastructure
     always: true
     cmds:
-      - echo "Cleaning up environments..."
+      - cmd: echo "Cleaning up environments..."
+        silent: true
       - docker stop test-redis-master test-redis-replica 2>/dev/null || true
       - docker rm test-redis-master test-redis-replica 2>/dev/null || true
-      - rm -f {{.TEST_BIN}} {{.CONFIG_FILE}}
+      - rm -f {{.CONFIG_FILE}}
 
   clean:
     desc: Clean up build artifacts and caches
