@@ -207,4 +207,7 @@ tasks:
   package:debian:
     desc: Build a Ubuntu DEB package
     cmds:
+      # - dpkg-buildpackage -us -uc -b --changes-option=-u./bin/debpkgs --buildinfo-option=-u./bin/debpkgs
       - dpkg-buildpackage -us -uc -b
+      - mkdir -p ./bin/debpkgs
+      - mv ../redis-healthcheck-sidecar_*_amd64.* ./bin/debpkgs/
