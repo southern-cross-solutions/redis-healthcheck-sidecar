@@ -227,6 +227,16 @@ func main() {
 
 	// Handle Log levels via ENV
 	logLevel := slog.LevelInfo
+	if envLogLevel := os.Getenv("LOG_LEVEL"); envLogLevel != "" {
+		var parsedLevel slog.Level
+
+		err := parsedLevel.UnmarshalText([]byte(strings.ToUpper(envLogLevel)))
+		if err == nil {
+			logLevel = parsedLevel
+		} else {
+			slog.Warn("Invalid LOG_LEVEL missing or malformed, defaulting to INFO", "err", err)
+		}
+	}
 	if strings.ToLower(os.Getenv("LOG_LEVEL")) == "debug" {
 		logLevel = slog.LevelDebug
 	}

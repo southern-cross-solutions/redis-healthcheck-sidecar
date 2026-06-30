@@ -1,3 +1,9 @@
+redis-healthcheck-sidecar (1.1.1-1) stable; urgency=low
+
+  * Made the Environment variable LOG_LEVEL usable for all levels
+
+ -- Southern Cross Solutions <info@southerncross.solutions>  Tue, 30 Jun 2026 17:40:00 +0200
+
 redis-healthcheck-sidecar (1.1.0-1) stable; urgency=low
 
   * Added Redis TLS Connection support
