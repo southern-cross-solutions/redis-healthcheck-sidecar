@@ -18,6 +18,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -34,8 +36,13 @@ import (
 // Config holds the structure for our external JSON file
 type Config struct {
 	RedisAddress  string `json:"redis_address"`
+	RedisHostname string `json:"redis_hostname"`
 	RedisPassword string `json:"redis_password"`
 	HTTPPort      int    `json:"http_port"`
+	TLSEnabled    bool   `json:"tls_enabled"`
+	TLSCACert     string `json:"tls_ca_cert"`
+	TLSCert       string `json:"tls_cert"`
+	TLSKey        string `json:"tls_key"`
 }
 
 var globalConfig Config
@@ -124,8 +131,43 @@ func masterHandler(w http.ResponseWriter, r *http.Request) {
 	reqLogger := slog.With("client_ip", r.RemoteAddr, "path", r.URL.Path)
 	reqLogger.Debug("Received /master request")
 
-	// 1. Connect using config-defined address
-	conn, err := net.DialTimeout("tcp", globalConfig.RedisAddress, timeout)
+	var conn net.Conn
+	var err error
+
+	dialer := &net.Dialer{Timeout: timeout}
+	if globalConfig.TLSEnabled {
+		// Load Client Certificate and Key
+		cert, err := tls.LoadX509KeyPair(globalConfig.TLSCert, globalConfig.TLSKey)
+		if err != nil {
+			reqLogger.Error("Failed to load client certificate/key", "error", err)
+			reqLogger.Debug("TLSCert=", "debug", globalConfig.TLSCert)
+			reqLogger.Debug("TLSKey=", "debug", globalConfig.TLSKey)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		// Load CA Certificate to verify Redis Server
+		caCert, err := os.ReadFile(globalConfig.TLSCACert)
+		if err != nil {
+			reqLogger.Error("Failed to read CA certificate", "error", err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+
+		// Create TLS Configuration
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			RootCAs:      caCertPool,
+			ServerName:   globalConfig.RedisHostname,
+		}
+
+		conn, err = tls.DialWithDialer(dialer, "tcp", globalConfig.RedisAddress, tlsConfig)
+	} else {
+		conn, err = dialer.Dial("tcp", globalConfig.RedisAddress)
+	}
+
 	if err != nil {
 		reqLogger.Error("Master-check failed: cannot connect to Redis port", "error", err)
 		http.Error(w, "Redis Down", http.StatusServiceUnavailable)
@@ -137,7 +179,6 @@ func masterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	_ = conn.SetDeadline(time.Now().Add(timeout))
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 
 	// 2. AUTH using config-defined password

@@ -25,7 +25,9 @@ vars:
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0"
   TEST_BIN: ./bin/redis-healthcheck-sidecar
-  TEST_CONFIG_FILE: ./bin/test/test-config.json
+  TEST_CONFIG_FILE_MASTER: ./bin/test/test-acceptance-master-config.json
+  TEST_CONFIG_FILE_REPLICA: ./bin/test/test-acceptance-replica-config.json
+  TEST_DIR: "{{.TASKFILE_DIR}}/test"
 
 # Environmental variables loaded for tasks
 env:
@@ -116,8 +118,33 @@ tasks:
     cmds:
       - cmd: echo "Launching local Test Redis Architecture..."
         silent: true
-      - docker run -d --name test-redis-master -p 63791:6379 redis:7-alpine redis-server --requirepass 123456
-      - docker run -d --name test-redis-replica -p 63792:6379 redis:7-alpine redis-server --requirepass 123456 --replicaof 172.17.0.1 63791
+      - |
+        docker run -d \
+          --name test-redis-master \
+          -p 63791:6379 \
+          -v {{.TEST_DIR}}/certs:/certs \
+          redis:7-alpine redis-server \
+          --port 0 \
+          --tls-port 6379 \
+          --tls-cert-file /certs/redis.crt \
+          --tls-key-file /certs/redis.key \
+          --tls-ca-cert-file /certs/ca.crt \
+          --tls-auth-clients yes \
+          --requirepass 123456
+      - |
+        docker run -d \
+          --name test-redis-replica \
+          -p 63792:6379 \
+          -v {{.TEST_DIR}}/certs:/certs \
+          redis:7-alpine redis-server \
+          --port 0 \
+          --tls-port 6379 \
+          --tls-cert-file /certs/redis.crt \
+          --tls-key-file /certs/redis.key \
+          --tls-ca-cert-file /certs/ca.crt \
+          --tls-auth-clients yes \
+          --replicaof 172.17.0.1 63791 \
+          --requirepass 123456
       - sleep 3
 
   test:acceptance:scenario-master:
@@ -127,9 +154,14 @@ tasks:
     silent: true
     cmds:
       - defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
-      - echo '{"redis_address":"127.0.0.1:63791","redis_password":"123456","http_port":8081}' > {{.TEST_CONFIG_FILE}}
+      - |
+        echo '{"redis_address":"127.0.0.1:63791","redis_password":"123456","http_port":8081, 
+        "tls_enabled": true, "tls_ca_cert": "{{.TEST_DIR}}/certs/ca.crt", 
+        "tls_cert": "{{.TEST_DIR}}/certs/client.crt", 
+        "tls_key": "{{.TEST_DIR}}/certs/client.key", 
+        "redis_hostname": "redis-test-server"}' > {{.TEST_CONFIG_FILE_MASTER}}
       # Run in background via Taskfile native & tracking
-      - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
+      - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE_MASTER}} &"
       - sleep 1
       - echo "Verifying Master status (Expecting 200 OK)..."
       # Perform HTTP evaluation and assertion
@@ -147,8 +179,13 @@ tasks:
     silent: true
     cmds:
       - defer: kill $(pkill -f "{{.TEST_BIN}}") 2>/dev/null || true
-      - echo '{"redis_address":"127.0.0.1:63792","redis_password":"123456","http_port":8082}' > {{.TEST_CONFIG_FILE}}
-      - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE}} &"
+      - |
+        echo '{"redis_address":"127.0.0.1:63792","redis_password":"123456","http_port":8082, 
+        "tls_enabled": true, "tls_ca_cert": "{{.TEST_DIR}}/certs/ca.crt", 
+        "tls_cert": "{{.TEST_DIR}}/certs/client.crt", 
+        "tls_key": "{{.TEST_DIR}}/certs/client.key", 
+        "redis_hostname": "redis-test-server"}' > {{.TEST_CONFIG_FILE_REPLICA}}
+      - "{{.TEST_BIN}} -config {{.TEST_CONFIG_FILE_REPLICA}} &"
       - sleep 1
       - echo "Verifying Replica status (Expecting 503 Service Unavailable)..."
       - |
