@@ -1,7 +1,10 @@
-
 {
     "redis_address": "127.0.0.0:6379",
+    "redis_hostname": "my-redis-server",
     "redis_password": "my-secret-password-for-redis",
-    "http_port": 8000
+    "http_port": 8000,
+    "tls_enabled": true, 
+    "tls_ca_cert": "/certs/ca.crt", 
+    "tls_cert": "/certs/client.crt", 
+    "tls_key": "/certs/client.key"
 }
-
